@@ -2,37 +2,33 @@ package main
 
 import (
 	"encoding/csv"
+	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/gocolly/colly/v2"
 )
 
 type Topic struct {
 	Name string
-	Tag string
+	Tag  string
 }
 
 func main() {
-	// Read the maximum number of titles per topic
-	var maxTitles int
-	fmt.Print("Enter the maximum number of titles per topic: ")
-	_, err := fmt.Scanf("%d", &maxTitles)
-	if err != nil {
-		fmt.Println("Error reading the maximum number of titles per topic:", err)
-	}
+	// Read the maximum number of paragraphs per topic
+	maxParagraphs := flag.Int("maxParagraphs", 100, "The maximum number of paragraphs per topic")
+
+	// Read the output file name
+	outputFile := flag.String("outputFile", "data.csv", "The output file name")
+
+	// Parse the flags
+	flag.Parse()
 
 	// Define base URL
 	baseURL := "https://vnexpress.net/"
 
 	// Define topics
-	// topics := []string{
-	// 	"thoi-su", "the-gioi", "kinh-doanh",
-	// 	"bat-dong-san", "khoa-hoc", "giai-tri",
-	// 	"the-thao", "phap-luat", "giao-duc",
-	// 	"suc-khoe", "doi-song", "du-lich",
-	// 	"so-hoa", "oto-xe-may", "y-kien",
-	// }
 	topics := []Topic{
 		{"Thời sự", "thoi-su"},
 		{"Thế giới", "the-gioi"},
@@ -52,50 +48,63 @@ func main() {
 	}
 
 	// Create a CSV file
-	file, err := os.Create("data.csv")
+	file, err := os.Create(*outputFile)
 	if err != nil {
 		fmt.Println("Error creating file:", err)
 	}
 
 	// Create a CSV writer
 	writer := csv.NewWriter(file)
-	writer.Write([]string{"Title", "Topic"})
+	writer.Write([]string{"Paragraph", "Topic"})
 
-	// Create a Collector
-	c := colly.NewCollector()
+	// Create a link collector
+	linkCollector := colly.NewCollector()
+
+	// Create a paragraph collector
+	paragraphCollector := colly.NewCollector()
 
 	var topicName string
-	var countTitles int
-	var foundTitle bool
+	var countParagraphs int
+	var foundLink bool
 
-	// Set up the Collector
-	c.OnHTML(".title-news", func(e *colly.HTMLElement) {
-		if countTitles >= maxTitles {
+	// Set up the paragraph collector
+	paragraphCollector.OnHTML("article.fck_detail", func(e *colly.HTMLElement) {
+		if countParagraphs >= *maxParagraphs {
 			return
 		}
-		title := e.ChildText("a[title]")
-		err := writer.Write([]string{title, topicName})
-		if err != nil {
-			fmt.Println("Error writing record to CSV:", err)
+		paragraphs := e.ChildTexts("p:not(.Image)")
+		for _, paragraph := range paragraphs {
+			if countParagraphs >= *maxParagraphs {
+				break
+			}
+			if len(strings.Fields(paragraph)) < 10 {
+				continue
+			}
+			countParagraphs++
+			writer.Write([]string{paragraph, topicName})
 		}
-		countTitles++
-		foundTitle = true
+	})
+
+	// Set up the link collector
+	linkCollector.OnHTML(".title-news", func(e *colly.HTMLElement) {
+		if countParagraphs >= *maxParagraphs {
+			return
+		}
+		foundLink = true
+		link := e.ChildAttr("a[title]", "href")
+		fmt.Println("Visiting", link)
+		paragraphCollector.Visit(link)
 	})
 
 	for _, topic := range topics {
-		// Visit URL
+		// Visit multiple pages of a topic
 		topicName = topic.Name
-		countTitles = 0
-		for page := 1; countTitles < maxTitles; page++ {
-			var url string
-			if page == 1 {
-				url = baseURL + topic.Tag
-			} else {
-				url = fmt.Sprintf("%s%s-p%d", baseURL, topic.Tag, page)
-			}
-			foundTitle = false
-			c.Visit(url)
-			if !foundTitle {
+		countParagraphs = 0
+		foundLink = false
+		for page := 1; countParagraphs < *maxParagraphs; page++ {
+			url := fmt.Sprintf("%s%s-p%d", baseURL, topic.Tag, page)
+			linkCollector.Visit(url)
+			if !foundLink {
 				break
 			}
 		}
