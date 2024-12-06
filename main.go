@@ -77,6 +77,10 @@ func main() {
 			if countParagraphs >= *maxParagraphs {
 				break
 			}
+			paragraph = strings.TrimSpace(paragraph)
+			paragraph = strings.ReplaceAll(paragraph, "\r\n", " ")
+			paragraph = strings.ReplaceAll(paragraph, "\n", " ")
+			paragraph = strings.ReplaceAll(paragraph, "\t", " ")
 			if len(strings.Fields(paragraph)) < 10 {
 				continue
 			}
